@@ -11,7 +11,6 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -109,29 +108,26 @@ func main() {
 	var buf bytes.Buffer
 	logger := log.New(&buf, "logger: ", log.Lshortfile)
 
-	dst = filepath.Join(*path, dst)
 	*sensitivity -= 100
+
 	if *undo {
 		undoDelete(logger)
+	} else {
+		files := getAllFiles(*path)
+		// Create an empty store.
+		var store hasher.Store
+		switch *algo {
+		case "fmiq":
+			store = hasher.NewDuploStore(*sensitivity)
+		default:
+			store = hasher.NewImgsimStore()
+		}
+		logger.Printf("Found %d files\n", len(files))
+
+		p, bar := createProgressBar(files)
+		processFiles(files, bar, logger, store)
+		p.Wait()
 	}
-
-	//files := getFiles(*path)
-	files := getAllFiles(*path)
-
-	// Create an empty store.
-	// Create an empty store.
-	var store hasher.Store
-	switch *algo {
-	case "fmiq":
-		store = hasher.NewDuploStore(*sensitivity)
-	default:
-		store = hasher.NewImgsimStore()
-	}
-	logger.Printf("Found %d files\n", len(files))
-
-	p, bar := createProgressBar(files)
-	processFiles(files, bar, logger, store)
-	p.Wait()
 
 	fmt.Print("Report:\n", &buf)
 }
@@ -169,23 +165,22 @@ func createProgressBar(files []imgInfo) (*mpb.Progress, *mpb.Bar) {
 }
 
 func undoDelete(logger *log.Logger) {
-	files, err := ioutil.ReadDir(dst)
-	if err != nil {
-		log.Fatal(err)
-	}
+	dst = filepath.Join(*path, dst)
+	files := getAllFiles(dst)
+
 	for _, f := range files {
-		if strings.Contains(f.Name(), keepPrefix) {
+		if strings.Contains(f.fileInfo.Name(), keepPrefix) {
 			if *dryRun {
-				logger.Println("removing ", f.Name())
+				logger.Println("removing ", f.path)
 			} else {
-				os.Remove(filepath.Join(dst, f.Name()))
+				os.Remove(f.path)
 			}
 		}
-		if strings.Contains(f.Name(), deletePrefix) {
+		if strings.Contains(f.fileInfo.Name(), deletePrefix) {
 			if *dryRun {
-				logger.Printf("moving %s to %s\n ", filepath.Join(dst, f.Name()), filepath.Join(*path, f.Name()[13:]))
+				logger.Printf("moving %s to %s\n ", f.path, f.path[13:])
 			} else {
-				os.Rename(filepath.Join(dst, f.Name()), filepath.Join(*path, f.Name()[13:]))
+				os.Rename(f.path, f.path[13:])
 			}
 		}
 	}
